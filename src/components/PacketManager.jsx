@@ -600,14 +600,16 @@ const PacketManager = ({ packets, addPacket, updatePacket, deletePacket, addQues
   };
 
   const handleDeleteQuestion = async (qid) => {
-    try {
-      await deleteQuestion(qid);
-      
-      // Force re-render to update marks calculation
-      setSelectedPacket(selectedPacket);
-    } catch (error) {
-      console.error('Error deleting question:', error);
-      alert('Failed to delete question. Please try again.');
+    if (window.confirm("Are you sure you want to delete this question?")) {
+      try {
+        await deleteQuestion(qid);
+        
+        // Force re-render to update marks calculation
+        setSelectedPacket(selectedPacket);
+      } catch (error) {
+        console.error('Error deleting question:', error);
+        alert('Failed to delete question. Please try again.');
+      }
     }
   };
 

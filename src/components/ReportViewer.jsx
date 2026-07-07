@@ -13,6 +13,7 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import './ReportViewer.css';
 import { enrichQuizWithInstructions } from './QuizInstructionsMap';
+import { quizApi, userApi, quizPacketApi, pdfTemplateApi } from '../services/api';
 
 
 // Custom alpha function for hex/rgb to rgba conversion without material-ui
@@ -561,29 +562,18 @@ const ReportViewer = () => {
         setLoading(true);
         setError('');
 
-        // Load quiz, attempts, packets, and template in parallel
-        const [quizRes, attemptsRes, packetsRes, templateRes] = await Promise.all([
-          fetch(`/api/quizzes/${quizId}`),
-          fetch('/api/quiz-attempts'),
-          fetch(`/api/quiz-packets/${quizId}`),
-          fetch(`/api/pdf-templates/${quizId}`).catch(() => null)
+        // Load quiz, attempts, packets, and template in parallel using API client
+        const [quizData, attempts, packetData, templateResData] = await Promise.all([
+          quizApi.getQuizById(quizId),
+          userApi.getAllQuizAttempts(),
+          quizPacketApi.getQuizPackets(quizId),
+          pdfTemplateApi.getTemplate(quizId).catch(() => null)
         ]);
 
-        if (!quizRes.ok || !attemptsRes.ok || !packetsRes.ok) {
-          throw new Error('Failed to load report data');
-        }
-
-        const quizData = await quizRes.json();
         enrichQuizWithInstructions(quizData);
-        const attempts = await attemptsRes.json();
-        const packetData = await packetsRes.json();
-        let templateData = null;
-        if (templateRes && templateRes.ok) {
-          const t = await templateRes.json();
-          templateData = t?.template || t;
-        }
+        const templateData = templateResData?.template || templateResData;
 
-        const foundAttempt = attempts.find(a => String(a.id) === String(attemptId));
+        const foundAttempt = (attempts || []).find(a => String(a.id) === String(attemptId));
         if (!foundAttempt) {
           throw new Error('Attempt not found');
         }
@@ -591,10 +581,7 @@ const ReportViewer = () => {
         let userData = null;
         if (foundAttempt.user_id) {
           try {
-            const userRes = await fetch(`/api/users/${foundAttempt.user_id}`);
-            if (userRes.ok) {
-              userData = await userRes.json();
-            }
+            userData = await userApi.getUserById(foundAttempt.user_id);
           } catch { }
         }
 

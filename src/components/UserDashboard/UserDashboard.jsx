@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
+import { quizPacketApi } from '../../services/api';
 import {
   Quiz as QuizIcon,
   CheckCircle as CheckCircleIcon,
@@ -87,32 +88,33 @@ const UserDashboard = ({ setTab }) => {
       .filter(a => a.quiz); // drop assignments whose quiz was deleted
   }, [user, profiles, quizzes, quizAssignments]);
 
-  // Derive the summary cards from the user's actual attempts so they stay in
-  // sync with the Recent Attempts list and update as more quizzes are taken.
-  // (The /stats endpoint returns totalQuizzes/completedQuizzes, not the
-  // totalAttempts field the cards used to read — hence the stale "0".)
+  // Filter attempts so we only include those for quizzes that are assigned to the user/profile.
+  const allowedQuizIds = useMemo(() => {
+    return new Set(assignedQuizzes.map(aq => String(aq.quiz_id)));
+  }, [assignedQuizzes]);
+
+  const filteredUserQuizAttempts = useMemo(() => {
+    return userQuizAttempts.filter(a => allowedQuizIds.has(String(a.quiz_id)));
+  }, [userQuizAttempts, allowedQuizIds]);
+
+  // Derive the summary cards stats
   const stats = useMemo(() => {
-    const completedQuizIds = new Set(
-      userQuizAttempts
+    // Unique mapped assessments (count of unique quizzes assigned to the user/profile)
+    const mappedCount = allowedQuizIds.size;
+
+    // Unique assessments taken (unique quizzes in filteredUserQuizAttempts completed at least once)
+    const takenQuizIds = new Set(
+      filteredUserQuizAttempts
         .filter(a => a.completed_at || a.status === 'completed')
         .map(a => String(a.quiz_id))
     );
-    const completedCount = completedQuizIds.size;
+    const takenCount = takenQuizIds.size;
 
-    // Pending = anything still to finish: quizzes with an in-progress attempt
-    // (started but not completed) plus assigned quizzes not yet completed.
-    // Counted as distinct quizzes and excluding already-completed ones, so an
-    // in-progress attempt shows up even if the quiz isn't a profile assignment.
-    const pendingQuizIds = new Set();
-    userQuizAttempts
-      .filter(a => !a.completed_at && a.status !== 'completed')
-      .forEach(a => pendingQuizIds.add(String(a.quiz_id)));
-    assignedQuizzes.forEach(aq => pendingQuizIds.add(String(aq.quiz_id)));
-    completedQuizIds.forEach(id => pendingQuizIds.delete(id));
-    const pendingCount = pendingQuizIds.size;
+    // Total attempts made by the user on the allowed/mapped assessments
+    const totalAttemptsCount = filteredUserQuizAttempts.length;
 
-    return { completedCount, pendingCount };
-  }, [userQuizAttempts, assignedQuizzes]);
+    return { mappedCount, takenCount, totalAttemptsCount };
+  }, [allowedQuizIds, filteredUserQuizAttempts]);
 
   // Estimate time the same way the admin's Assessment Results does: based on the
   // quiz's question count (≈40s per question), not the stale stored time_limit.
@@ -133,10 +135,8 @@ const UserDashboard = ({ setTab }) => {
       const entries = await Promise.all(
         ids.map(async (id) => {
           try {
-            const res = await fetch(`/api/quiz-packets/${id}`);
-            if (!res.ok) return [id, 0];
-            const packetsData = await res.json();
-            const count = packetsData.reduce(
+            const packetsData = await quizPacketApi.getQuizPackets(id);
+            const count = (packetsData || []).reduce(
               (sum, packet) => sum + (packet.questions ? packet.questions.length : 0),
               0
             );
@@ -202,7 +202,7 @@ const UserDashboard = ({ setTab }) => {
             <PersonIcon />
           </div>
           <div>
-            <h1 className="dashboard__title">Welcome back!</h1>
+            <h1 className="dashboard__title">Welcome!</h1>
             <div className="dashboard__subtitle">
               <EmailIcon />
               <span>{user.email}</span>
@@ -215,8 +215,20 @@ const UserDashboard = ({ setTab }) => {
         <div className="stat-card stat-card--primary">
           <div className="stat-card__content">
             <div>
-              <div className="stat-card__value">{stats.completedCount}</div>
-              <div className="stat-card__label">Completed Assessments</div>
+              <div className="stat-card__value">{stats.mappedCount}</div>
+              <div className="stat-card__label">Mapped Assessments</div>
+            </div>
+            <div className="stat-card__icon">
+              <AssignmentIcon />
+            </div>
+          </div>
+        </div>
+
+        <div className="stat-card stat-card--success">
+          <div className="stat-card__content">
+            <div>
+              <div className="stat-card__value">{stats.takenCount}</div>
+              <div className="stat-card__label">Assessments Taken</div>
             </div>
             <div className="stat-card__icon">
               <CheckCircleIcon />
@@ -227,11 +239,11 @@ const UserDashboard = ({ setTab }) => {
         <div className="stat-card stat-card--warning">
           <div className="stat-card__content">
             <div>
-              <div className="stat-card__value">{stats.pendingCount}</div>
-              <div className="stat-card__label">Pending Assessments</div>
+              <div className="stat-card__value">{stats.totalAttemptsCount}</div>
+              <div className="stat-card__label">Total Attempts</div>
             </div>
             <div className="stat-card__icon">
-              <ScheduleIcon />
+              <TrendingUpIcon />
             </div>
           </div>
         </div>
@@ -256,7 +268,7 @@ const UserDashboard = ({ setTab }) => {
           ) : (
             <div>
               {assignedQuizzes.map((assignment) => {
-                const incompleteAttempt = userQuizAttempts.find(
+                const incompleteAttempt = filteredUserQuizAttempts.find(
                   a => String(a.quiz_id) === String(assignment.quiz_id) && (!a.completed_at && a.status !== 'completed')
                 );
                 return (
@@ -305,7 +317,7 @@ const UserDashboard = ({ setTab }) => {
             Recent Attempts
           </h2>
 
-          {userQuizAttempts.length === 0 ? (
+          {filteredUserQuizAttempts.length === 0 ? (
             <div className="empty-state">
               <TrendingUpIcon className="empty-state__icon" />
               <div className="empty-state__title">No attempts yet</div>
@@ -313,7 +325,7 @@ const UserDashboard = ({ setTab }) => {
             </div>
           ) : (
             <div>
-              {userQuizAttempts.slice(0, 5).map((attempt) => {
+              {filteredUserQuizAttempts.slice(0, 5).map((attempt) => {
                 const isCompleted = attempt.completed_at || attempt.status === 'completed';
                 return (
                   <article key={attempt.id} className="list-item">
@@ -368,10 +380,10 @@ const UserDashboard = ({ setTab }) => {
                 );
               })}
 
-              {userQuizAttempts.length > 5 && (
+              {filteredUserQuizAttempts.length > 5 && (
                 <div style={{ textAlign: 'center', marginTop: 'var(--space-6)' }}>
                   <button className="btn btn--outline" onClick={() => setTab && setTab(1)}>
-                    View All {userQuizAttempts.length} Attempts &rarr;
+                    View All {filteredUserQuizAttempts.length} Attempts &rarr;
                   </button>
                 </div>
               )}

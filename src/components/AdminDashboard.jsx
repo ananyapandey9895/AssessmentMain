@@ -10,9 +10,11 @@ import {
   FilterList as FilterListIcon,
   Download as DownloadIcon,
   BarChart as BarChartIcon,
-  Analytics as AnalyticsIcon
+  Analytics as AnalyticsIcon,
+  Business as BusinessIcon
 } from '@mui/icons-material'
 import { useDatabase } from '../hooks/useDatabase'
+import { organizationApi, userApi } from '../services/api'
 import './AdminDashboard.css'
 
 const AdminDashboard = () => {
@@ -24,6 +26,9 @@ const AdminDashboard = () => {
   const [userMap, setUserMap] = useState({})
   const [showProfileBreakdown, setShowProfileBreakdown] = useState(false)
   const [showOthersBreakdown, setShowOthersBreakdown] = useState(false)
+  const [showOrganizationBreakdown, setShowOrganizationBreakdown] = useState(false)
+  const [organizations, setOrganizations] = useState([])
+  const [allUsersList, setAllUsersList] = useState([])
   const [userSearch, setUserSearch] = useState('')
   const [selectedUser, setSelectedUser] = useState(null)
   const [quizSearch, setQuizSearch] = useState('')
@@ -44,21 +49,28 @@ const AdminDashboard = () => {
         setError(null)
         const attempts = await loadAllQuizAttempts()
 
-        // The global /api/quiz-attempts endpoint returns flat records (no nested
-        // quiz/user/profile), so fetch each referenced user once to enrich locally.
-        const userIds = [...new Set((attempts || []).map(a => a.user_id).filter(Boolean))]
-        const entries = await Promise.all(
-          userIds.map(async (id) => {
-            try {
-              const res = await fetch(`/api/users/${id}`)
-              if (res.ok) return [id, await res.json()]
-            } catch (e) {
-              /* ignore individual user fetch failures */
-            }
-            return [id, null]
+        // Load organizations and users in parallel
+        const [orgs, users] = await Promise.all([
+          organizationApi.getAllOrganizations().catch(err => {
+            console.error('Error loading organizations:', err)
+            return []
+          }),
+          userApi.getAllUsers().catch(err => {
+            console.error('Error loading users:', err)
+            return []
           })
-        )
-        setUserMap(Object.fromEntries(entries))
+        ])
+        setOrganizations(orgs)
+        setAllUsersList(users)
+
+        // Map preloaded users directly to userMap to avoid network overhead and proxy socket drops
+        const localUserMap = {}
+        if (users && users.length) {
+          users.forEach(u => {
+            localUserMap[String(u.id)] = u
+          })
+        }
+        setUserMap(localUserMap)
       } catch (err) {
         console.error('Error loading admin data:', err)
         setError(err.message)
@@ -148,8 +160,11 @@ const AdminDashboard = () => {
       const userData = userMap[userId]
       let profileName = (userData && userData.profile) || 'Unassigned'
       
-      // Group profiles not in the displayed list into "Others"
-      if (!displayedProfiles.includes(profileName)) {
+      // Group profiles not in the displayed list into "Others" (case-insensitive check)
+      const matched = displayedProfiles.find(dp => dp.toLowerCase() === profileName.toLowerCase())
+      if (matched) {
+        profileName = matched
+      } else {
         othersBreakdown[profileName] = (othersBreakdown[profileName] || 0) + 1
         profileName = 'Others'
       }
@@ -168,6 +183,47 @@ const AdminDashboard = () => {
 
     return profiles
   }, [allQuizAttempts, userMap])
+
+  // Dynamically compute list of all organizations (merging backend orgs with legacy ones scanned from users)
+  const allOrganizations = useMemo(() => {
+    const list = [...organizations];
+    const userOrgNames = [...new Set(allUsersList.map(u => u.organization).filter(Boolean))];
+    userOrgNames.forEach(orgName => {
+      const nameLower = orgName.toLowerCase();
+      if (nameLower !== 'individual' && !list.some(o => o.name.toLowerCase() === nameLower)) {
+        list.push({
+          id: 'legacy-' + nameLower.replace(/\s+/g, '-'),
+          name: orgName,
+          onboarding_code: 'LEGACY-' + orgName.toUpperCase().replace(/\s+/g, ''),
+          isLegacy: true
+        });
+      }
+    });
+    // Filter out test/dummy organizations
+    return list.filter(org => {
+      const nameLower = org.name.toLowerCase();
+      return (
+        !nameLower.includes('automation test org') &&
+        nameLower !== 'test 2' &&
+        nameLower !== 'test org'
+      );
+    });
+  }, [organizations, allUsersList]);
+
+  // Group users by their organization and count members
+  const orgMembers = useMemo(() => {
+    return allOrganizations.map(org => {
+      const memberCount = allUsersList.filter(u => 
+        (u.organization_id && String(u.organization_id) === String(org.id)) ||
+        (u.organization && u.organization.toLowerCase() === org.name.toLowerCase())
+      ).length;
+      return {
+        id: org.id,
+        name: org.name,
+        memberCount
+      };
+    }).sort((a, b) => b.memberCount - a.memberCount || a.name.localeCompare(b.name));
+  }, [allOrganizations, allUsersList]);
 
   // One row per user, aggregating their attempts into headline metrics plus the
   // raw rows (used by the drill-down modal). Averages/best use completed attempts only.
@@ -451,6 +507,40 @@ const AdminDashboard = () => {
       </header>
 
       <div className="admin-stats-grid">
+        <div
+          className="admin-stat-card admin-stat-card--clickable"
+          onClick={() => setShowProfileBreakdown(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfileBreakdown(true) }}
+          title="View active users per profile"
+        >
+          <div>
+            <div className="admin-stat-card__value" style={{ color: '#895BF5' }}>{stats.totalUsers}</div>
+            <div className="admin-stat-card__label">Active Users</div>
+          </div>
+          <div className="admin-stat-card__icon" style={{ backgroundColor: '#895BF5' }}>
+            <PeopleAltIcon />
+          </div>
+        </div>
+
+        <div 
+          className="admin-stat-card admin-stat-card--clickable"
+          onClick={() => setShowOrganizationBreakdown(true)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowOrganizationBreakdown(true) }}
+          title="View members per organization"
+        >
+          <div>
+            <div className="admin-stat-card__value" style={{ color: '#895BF5' }}>{allOrganizations.length}</div>
+            <div className="admin-stat-card__label">Organizations</div>
+          </div>
+          <div className="admin-stat-card__icon" style={{ backgroundColor: '#895BF5' }}>
+            <BusinessIcon />
+          </div>
+        </div>
+
         <div className="admin-stat-card">
           <div>
             <div className="admin-stat-card__value" style={{ color: 'var(--color-primary)' }}>{stats.totalAttempts}</div>
@@ -473,35 +563,8 @@ const AdminDashboard = () => {
 
         <div className="admin-stat-card">
           <div>
-            <div className="admin-stat-card__value" style={{ color: '#895BF5' }}>{stats.totalMarksSum}</div>
-            <div className="admin-stat-card__label">Total Marks</div>
-          </div>
-          <div className="admin-stat-card__icon" style={{ backgroundColor: '#895BF5' }}>
-            <TrendingUpIcon />
-          </div>
-        </div>
-
-        <div
-          className="admin-stat-card admin-stat-card--clickable"
-          onClick={() => setShowProfileBreakdown(true)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowProfileBreakdown(true) }}
-          title="View active users per profile"
-        >
-          <div>
-            <div className="admin-stat-card__value" style={{ color: '#895BF5' }}>{stats.totalUsers}</div>
-            <div className="admin-stat-card__label">Active Users</div>
-          </div>
-          <div className="admin-stat-card__icon" style={{ backgroundColor: '#895BF5' }}>
-            <PeopleAltIcon />
-          </div>
-        </div>
-
-        <div className="admin-stat-card">
-          <div>
-            <div className="admin-stat-card__value" style={{ color: '#895BF5' }}>{stats.completedAttempts}/{stats.totalAttempts}</div>
-            <div className="admin-stat-card__label">Completion Rate</div>
+            <div className="admin-stat-card__value" style={{ color: '#895BF5' }}>{Math.round(stats.completionRate)}%</div>
+            <div className="admin-stat-card__label">Completion Rate ({stats.completedAttempts}/{stats.totalAttempts})</div>
           </div>
           <div className="admin-stat-card__icon" style={{ backgroundColor: '#895BF5' }}>
             <ScheduleIcon />
@@ -1129,6 +1192,42 @@ const AdminDashboard = () => {
                     <li key={name} className="admin-profile-list__item">
                       <span className="admin-profile-list__name">{name}</span>
                       <span className="admin-profile-list__count">{count}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showOrganizationBreakdown && (
+        <div className="admin-modal-overlay" onClick={() => setShowOrganizationBreakdown(false)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="admin-modal__header">
+              <div className="admin-modal__title">
+                <BusinessIcon />
+                <span>Organizations & Member Count</span>
+              </div>
+              <button
+                className="admin-modal__close"
+                onClick={() => setShowOrganizationBreakdown(false)}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="admin-modal__body">
+              {orgMembers.length === 0 ? (
+                <p className="admin-modal__empty">No organizations found.</p>
+              ) : (
+                <ul className="admin-profile-list">
+                  {orgMembers.map(({ id, name, memberCount }) => (
+                    <li key={id} className="admin-profile-list__item">
+                      <span className="admin-profile-list__name">
+                        <strong>{name}</strong>
+                      </span>
+                      <span className="admin-profile-list__count">{memberCount} {memberCount === 1 ? 'member' : 'members'}</span>
                     </li>
                   ))}
                 </ul>

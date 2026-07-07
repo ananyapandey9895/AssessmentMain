@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-
+const API_BASE = 'https://constrain-magnifier-circling.ngrok-free.dev/api';
 
 function AuthPage() {
   const [tab, setTab] = useState(0)
@@ -8,6 +8,7 @@ function AuthPage() {
   const [password, setPassword] = useState('')
   const [userName, setUserName] = useState('')
   const [profile, setProfile] = useState('')
+  const [registrationType, setRegistrationType] = useState('individual')
   const [organization, setOrganization] = useState('') // Added organization state
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -38,12 +39,14 @@ function AuthPage() {
       setCodeVerificationError('')
       setVerifiedOrgName('')
       try {
-        const response = await fetch(`/api/auth/verify-code?code=${encodeURIComponent(onboardingCode.trim().toUpperCase())}`)
+        const response = await fetch(`${API_BASE}/auth/verify-code?code=${encodeURIComponent(onboardingCode.trim().toUpperCase())}`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        })
         if (response.ok) {
           const data = await response.json()
           setVerifiedOrgName(data.name)
-          if (data.email) setEmail(data.email)
-          if (data.userName) setUserName(data.userName)
+          if (data.email && !email.trim()) setEmail(data.email)
+          if (data.userName && !userName.trim()) setUserName(data.userName)
         } else {
           const errData = await response.json()
           setCodeVerificationError(errData.error || 'Invalid user code')
@@ -68,7 +71,9 @@ function AuthPage() {
     const fetchProfiles = async () => {
       setLoadingProfiles(true)
       try {
-        const response = await fetch('/api/profiles')
+        const response = await fetch(`${API_BASE}/profiles`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        })
         if (response.ok) {
           const profilesData = await response.json()
           setProfiles(profilesData)
@@ -103,6 +108,16 @@ function AuthPage() {
     }
   }, [success]);
 
+  const handleRegistrationTypeChange = (type) => {
+    setRegistrationType(type);
+    setProfile('');
+    if (type === 'individual') {
+      setOnboardingCode('');
+      setVerifiedOrgName('');
+      setCodeVerificationError('');
+    }
+  };
+
   const handleAuth = async (isSignUp) => {
     setLoading(true) // Move setLoading to the beginning for immediate feedback
     setError('')
@@ -122,7 +137,7 @@ function AuthPage() {
           return;
         }
         // If a company code was entered, it must resolve to a valid organization.
-        const isIndividual = profile === 'Individual';
+        const isIndividual = registrationType === 'individual';
         const trimmedCode = isIndividual ? '' : onboardingCode.trim();
         if (trimmedCode && !verifiedOrgName) {
           setError('The company code entered is not valid. Clear it to sign up individually.');
@@ -134,10 +149,11 @@ function AuthPage() {
         console.log('🚀 Starting signup process...', { email, userName, profile, userRole, organization: verifiedOrgName || 'Individual', userCode: trimmedCode })
 
         // Sign up using the API directly
-        const response = await fetch('/api/auth/signup', {
+        const response = await fetch(`${API_BASE}/auth/signup`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
           },
           body: JSON.stringify({
             email,
@@ -177,6 +193,7 @@ function AuthPage() {
             setPassword('');
             setUserName('');
             setProfile('');
+            setRegistrationType('individual');
             setOrganization(''); // Clear organization field
             setOnboardingCode('');
             setVerifiedOrgName('');
@@ -192,10 +209,11 @@ function AuthPage() {
         }
       } else {
         // Sign in using the API directly
-        const response = await fetch('/api/auth/signin', {
+        const response = await fetch(`${API_BASE}/auth/signin`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true'
           },
           body: JSON.stringify({
             email,
@@ -256,6 +274,7 @@ function AuthPage() {
       setPassword('');
       setUserName('');
       setProfile('');
+      setRegistrationType(newValue === 1 ? 'individual' : '');
       setOrganization('');
       setError('');
       setSuccess('');
@@ -365,6 +384,34 @@ function AuthPage() {
             {tab === 1 && (
               <>
                 <div className="form-group">
+                  <label className="form-label">Register as</label>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer', padding: '10px 14px', border: '1px solid var(--color-input)', borderRadius: 'var(--radius-md)', backgroundColor: registrationType === 'individual' ? 'rgba(137, 91, 245, 0.08)' : 'transparent', borderColor: registrationType === 'individual' ? 'var(--color-primary)' : 'var(--color-input)', transition: 'all 0.2s' }}>
+                      <input
+                        type="radio"
+                        name="registrationType"
+                        value="individual"
+                        checked={registrationType === 'individual'}
+                        onChange={() => handleRegistrationTypeChange('individual')}
+                        style={{ accentColor: 'var(--color-primary)', width: '16px', height: '16px' }}
+                      />
+                      <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--color-fg)' }}>Individual</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', cursor: 'pointer', padding: '10px 14px', border: '1px solid var(--color-input)', borderRadius: 'var(--radius-md)', backgroundColor: registrationType === 'company' ? 'rgba(137, 91, 245, 0.08)' : 'transparent', borderColor: registrationType === 'company' ? 'var(--color-primary)' : 'var(--color-input)', transition: 'all 0.2s' }}>
+                      <input
+                        type="radio"
+                        name="registrationType"
+                        value="company"
+                        checked={registrationType === 'company'}
+                        onChange={() => handleRegistrationTypeChange('company')}
+                        style={{ accentColor: 'var(--color-primary)', width: '16px', height: '16px' }}
+                      />
+                      <span style={{ fontWeight: 600, fontSize: 'var(--text-sm)', color: 'var(--color-fg)' }}>Via Code and Company</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="form-group">
                   <label className="form-label">Profile</label>
                   <select
                     className="form-input"
@@ -374,13 +421,16 @@ function AuthPage() {
                     disabled={loadingProfiles}
                   >
                     <option value="" disabled>Select a profile</option>
-                    {/* Individuals can sign up without a company — no code needed. */}
-                    <option value="Individual">Individual</option>
                     {loadingProfiles ? (
                       <option disabled>Loading profiles...</option>
                     ) : (
                       profiles
-                        .filter((profileItem) => profileItem.name !== 'SOLV' && profileItem.name !== 'Individual')
+                        .filter((profileItem) => 
+                          profileItem.name &&
+                          profileItem.name.toLowerCase() !== 'solv' && 
+                          profileItem.name.toLowerCase() !== 'individual' &&
+                          profileItem.name.toLowerCase() !== 'general'
+                        )
                         .map((profileItem) => (
                           <option key={profileItem.id} value={profileItem.name}>
                             {profileItem.name}
@@ -390,12 +440,9 @@ function AuthPage() {
                   </select>
                 </div>
 
-                {/* Unique User Code Input — only for company/organization users.
-                    Individuals don't have a code, so we hide it for them and it is
-                    never required for signup. */}
-                {profile !== 'Individual' && (
+                {registrationType === 'company' && (
                   <div className="form-group">
-                    <label className="form-label">Company Code (optional)</label>
+                    <label className="form-label">Company Code</label>
                     <input
                       className="form-input"
                       type="text"
@@ -403,6 +450,7 @@ function AuthPage() {
                       onChange={(e) => setOnboardingCode(e.target.value)}
                       placeholder="e.g. AB12CD"
                       style={{ textTransform: 'uppercase' }}
+                      required
                     />
 
                     {/* Real-time verification display */}
@@ -422,7 +470,7 @@ function AuthPage() {
                       )}
                       {!onboardingCode.trim() && !verifiedOrgName && !codeVerificationError && !verifyingCode && (
                         <span style={{ color: 'var(--color-muted-fg)' }}>
-                          Only if your company gave you a code. Leave blank to sign up individually.
+                          Please enter the code provided by your company.
                         </span>
                       )}
                     </div>
@@ -453,9 +501,7 @@ function AuthPage() {
                   !email.trim() ||
                   !profile ||
                   !password.trim() ||
-                  // Only block if a code was entered for a non-individual but
-                  // hasn't resolved to a valid organization yet.
-                  (profile !== 'Individual' && onboardingCode.trim() && !verifiedOrgName)
+                  (registrationType === 'company' && (!onboardingCode.trim() || !verifiedOrgName))
                 ))
               }
             >

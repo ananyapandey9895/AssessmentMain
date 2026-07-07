@@ -426,7 +426,7 @@ const QuizBuilder = ({ profiles, packets, savedQuizzes, addQuiz, updateQuiz, del
                   <button
                     type="button"
                     className="icon-btn icon-btn--danger"
-                    onClick={() => deleteQuiz(quiz.id)}
+                    onClick={() => { if (window.confirm("Are you sure you want to delete this quiz?")) deleteQuiz(quiz.id); }}
                     title="Delete Quiz"
                   >
                     <AddCircleOutlineIcon style={{ transform: 'rotate(45deg)', width: '18px', height: '18px' }} />

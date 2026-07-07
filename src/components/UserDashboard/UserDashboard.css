@@ -112,7 +112,7 @@
 
 @media (min-width: 1024px) {
   .dashboard__grid-stats {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
@@ -169,6 +169,9 @@
 
 .stat-card--primary .stat-card__value { color: var(--color-primary); }
 .stat-card--primary .stat-card__icon { background-color: var(--color-primary); }
+
+.stat-card--success .stat-card__value { color: #22C55E; }
+.stat-card--success .stat-card__icon { background-color: #22C55E; }
 
 .stat-card--warning .stat-card__value { color: var(--color-primary); }
 .stat-card--warning .stat-card__icon { background-color: var(--color-primary); }
