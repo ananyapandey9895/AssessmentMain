@@ -7,6 +7,7 @@ import {
 } from '@mui/icons-material';
 import { useDatabase } from '../hooks/useDatabase';
 import { quizPacketApi, userApi } from '../services/api';
+import { PROFILE_ORDER, isSameProfile } from '../utils/profileOrder';
 import './AssessmentResults.css';
 
 const AssessmentResults = () => {
@@ -28,10 +29,9 @@ const AssessmentResults = () => {
     return ['all', ...new Set(orgs)].sort();
   }, [quizAttempts]);
 
-  const uniqueProfiles = useMemo(() => {
-    const prfs = quizAttempts.map(a => a.profile?.name || 'Unknown Profile').filter(Boolean);
-    return ['all', ...new Set(prfs)].sort();
-  }, [quizAttempts]);
+  // Show exactly the canonical profiles in the filter (no data-driven extras
+  // like Home Maker, HCL, SOLV, "No role", etc.).
+  const uniqueProfiles = ['all', ...PROFILE_ORDER];
 
   const filteredAndSearchedAttempts = useMemo(() => {
     // 1. Filter
@@ -58,7 +58,7 @@ const AssessmentResults = () => {
       // Filter by Profile
       if (filterProfile !== 'all') {
         const attemptProfileName = attempt.profile?.name || 'Unknown Profile';
-        if (attemptProfileName !== filterProfile) return false;
+        if (!isSameProfile(attemptProfileName, filterProfile)) return false;
       }
 
       return true;

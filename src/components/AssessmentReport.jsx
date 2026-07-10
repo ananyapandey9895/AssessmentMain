@@ -10,6 +10,7 @@ import './AssessmentReport.css';
 import { enrichQuizWithInstructions } from './QuizInstructionsMap';
 import { useDatabase } from '../hooks/useDatabase';
 import { quizPacketApi, userApi, questionApi, pdfTemplateApi } from '../services/api';
+import { PROFILE_ORDER, isSameProfile } from '../utils/profileOrder';
 
 
 const AssessmentReport = () => {
@@ -75,13 +76,9 @@ const AssessmentReport = () => {
     return ['all', ...new Set(orgs)].sort();
   }, [quizAttempts]);
 
-  const uniqueProfiles = useMemo(() => {
-    const prfs = quizAttempts.map(a => {
-      const profileInfo = getProfileInfo(a);
-      return profileInfo.role || 'Unknown Profile';
-    }).filter(Boolean);
-    return ['all', ...new Set(prfs)].sort();
-  }, [quizAttempts]);
+  // Show exactly the canonical profiles in the filter (no data-driven extras
+  // like Home Maker, HCL, SOLV, "No role", etc.).
+  const uniqueProfiles = ['all', ...PROFILE_ORDER];
 
   const filteredAttempts = useMemo(() => {
     // 1. Filter
@@ -105,10 +102,11 @@ const AssessmentReport = () => {
         if (attemptOrg !== filterOrg) return false;
       }
 
-      // Filter by Profile
+      // Filter by Profile (case/spacing-insensitive so canonical names match
+      // stored variants like "Student(college/university)").
       if (filterProfile !== 'all') {
         const attemptProfileName = profileInfo.role || 'Unknown Profile';
-        if (attemptProfileName !== filterProfile) return false;
+        if (!isSameProfile(attemptProfileName, filterProfile)) return false;
       }
 
       return true;

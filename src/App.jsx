@@ -58,7 +58,30 @@ import PasswordReset from './components/PasswordReset'
 import PDFTemplateConfig from './components/PDFTemplateConfig'
 import ActiveTracking from './components/ActiveTracking'
 import OrganizationManager from './components/OrganizationManager'
+import { useTranslatedContent } from './hooks/useTranslatedContent'
 
+// Static chrome copy (sidebar, navbar, dialogs) — translated into the user's
+// selected language so the whole shell, not just the dashboard, is localized.
+const CHROME_TEXT = {
+  appTitle: 'Assessment Tool',
+  userDashboard: 'User Dashboard',
+  adminDashboard: 'Admin Dashboard',
+  howToUse: 'How to Use',
+  logout: 'Logout',
+  uploadExcel: 'Upload Excel',
+  quizRecords: 'Quiz Records',
+  noQuizAttempts: 'No quiz attempts found.',
+  taken: 'Taken:',
+  viewReport: 'View Report',
+  quiz: 'Quiz',
+  close: 'Close',
+  htHomeLabel: 'Home:',
+  htHome: 'View your dashboard with progress and assigned quizzes.',
+  htRecordsLabel: 'Quiz Records:',
+  htRecords: 'View your quiz attempt history and completion dates.',
+  htTakeLabel: 'Take Quizzes:',
+  htTake: 'Use the shareable links provided by your admin to take quizzes.',
+}
 
 const drawerWidth = 220
 
@@ -281,6 +304,15 @@ function App() {
   const filteredUserQuizAttempts = useMemo(() => {
     return userQuizAttempts.filter(a => allowedQuizIds.has(String(a.quiz_id)));
   }, [userQuizAttempts, allowedQuizIds]);
+
+  // Translate the app shell (sidebar titles, nav labels, navbar, dialogs) plus
+  // the quiz names shown in Quiz Records into the user's selected language.
+  const chromeTexts = [
+    ...Object.values(CHROME_TEXT),
+    ...navItems.map((item) => item.label),
+    ...filteredUserQuizAttempts.map((a) => a.quiz?.name || a.quiz_name).filter(Boolean),
+  ]
+  const { tx: tc } = useTranslatedContent(chromeTexts)
 
   // Assign quiz function
   const assignQuiz = async (profileId, quizId) => {
@@ -507,7 +539,7 @@ function App() {
             <aside className={`sidebar ${sidebarOpen ? 'sidebar--open' : ''}`}>
               <div className="sidebar__header">
                 <img src="https://happimynd.com/assets/Frontend/images/happimynd_logo.png" alt="HappiMynd" className="sidebar__logo" />
-                <span className="sidebar__title">Assessment Tool</span>
+                <span className="sidebar__title">{tc(CHROME_TEXT.appTitle)}</span>
               </div>
               <nav className="sidebar__nav">
                 {navItems.map((item, idx) => (
@@ -520,14 +552,14 @@ function App() {
                     }}
                   >
                     <div className="nav-item__icon">{item.icon}</div>
-                    <span>{item.label}</span>
+                    <span>{tc(item.label)}</span>
                   </div>
                 ))}
               </nav>
               <div className="sidebar__footer">
                 <div className="nav-item" onClick={() => setHowToOpen(true)}>
                   <div className="nav-item__icon"><InfoOutlinedIcon /></div>
-                  <span>How to Use</span>
+                  <span>{tc(CHROME_TEXT.howToUse)}</span>
                 </div>
               </div>
             </aside>
@@ -540,13 +572,13 @@ function App() {
                     <MenuIcon />
                   </button>
                   <div className="navbar__title">
-                    {isAdmin ? 'Admin Dashboard' : 'User Dashboard'} {useFallback && '(Fallback Mode)'}
+                    {isAdmin ? tc(CHROME_TEXT.adminDashboard) : tc(CHROME_TEXT.userDashboard)} {useFallback && '(Fallback Mode)'}
                   </div>
                 </div>
                 <div className="navbar__right">
                   {isAdmin && (
                     <label className="btn btn--outline" style={{ margin: 0, cursor: 'pointer' }}>
-                      Upload Excel
+                      {tc(CHROME_TEXT.uploadExcel)}
                       <input type="file" accept=".xlsx,.xls" hidden onChange={uploadExcel} />
                     </label>
                   )}
@@ -558,7 +590,7 @@ function App() {
                     setUser(null);
                     setIsAdmin(false);
                     setIsSuperAdmin(false);
-                  }}>Logout</button>
+                  }}>{tc(CHROME_TEXT.logout)}</button>
                 </div>
               </header>
               
@@ -915,9 +947,9 @@ function App() {
                     {tab === 0 && <UserDashboard user={user} userStats={userStats} setTab={setTab} />}
                     {tab === 1 && (
                       <Box sx={{ width: '100%' }}>
-                        <Typography variant="h4" sx={{ mb: 3 }}>Quiz Records</Typography>
+                        <Typography variant="h4" sx={{ mb: 3 }}>{tc(CHROME_TEXT.quizRecords)}</Typography>
                         {filteredUserQuizAttempts.length === 0 ? (
-                          <Typography>No quiz attempts found.</Typography>
+                          <Typography>{tc(CHROME_TEXT.noQuizAttempts)}</Typography>
                         ) : (
                           <Grid container spacing={3}>
                             {filteredUserQuizAttempts.map((attempt) => (
@@ -949,7 +981,7 @@ function App() {
                                         <QuizIcon sx={{ color: 'var(--color-primary)' }} />
                                       </Box>
                                       <Typography variant="h6" sx={{ fontWeight: 700, color: 'var(--color-fg)', fontSize: '1.15rem', lineHeight: 1.3 }}>
-                                        {attempt.quiz?.name || attempt.quiz_name || 'Quiz'}
+                                        {tc(attempt.quiz?.name || attempt.quiz_name) || tc(CHROME_TEXT.quiz)}
                                       </Typography>
                                     </Box>
 
@@ -959,7 +991,7 @@ function App() {
                                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'var(--color-muted-fg)' }}>
                                         <CalendarTodayIcon fontSize="small" sx={{ color: 'var(--color-primary)', opacity: 0.8 }} />
                                         <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                          Taken: {new Date(attempt.completed_at || attempt.created_at).toLocaleDateString('en-US', {
+                                          {tc(CHROME_TEXT.taken)} {new Date(attempt.completed_at || attempt.created_at).toLocaleDateString('en-US', {
                                             year: 'numeric',
                                             month: 'short',
                                             day: 'numeric',
@@ -989,7 +1021,7 @@ function App() {
                                         }
                                       }}
                                     >
-                                      View Report
+                                      {tc(CHROME_TEXT.viewReport)}
                                     </Button>
                                   </CardContent>
                                 </Card>
@@ -1004,7 +1036,7 @@ function App() {
               </div>
             </main>
             <Dialog open={howToOpen} onClose={() => setHowToOpen(false)} maxWidth="sm" fullWidth>
-              <DialogTitle>How to Use</DialogTitle>
+              <DialogTitle>{tc(CHROME_TEXT.howToUse)}</DialogTitle>
               <DialogContent dividers>
                 {isAdmin ? (
                   <ol>
@@ -1020,14 +1052,14 @@ function App() {
                   </ol>
                 ) : (
                   <ol>
-                    <li><b>Home:</b> View your dashboard with progress and assigned quizzes.</li>
-                    <li><b>Quiz Records:</b> View your quiz attempt history and completion dates.</li>
-                    <li><b>Take Quizzes:</b> Use the shareable links provided by your admin to take quizzes.</li>
+                    <li><b>{tc(CHROME_TEXT.htHomeLabel)}</b> {tc(CHROME_TEXT.htHome)}</li>
+                    <li><b>{tc(CHROME_TEXT.htRecordsLabel)}</b> {tc(CHROME_TEXT.htRecords)}</li>
+                    <li><b>{tc(CHROME_TEXT.htTakeLabel)}</b> {tc(CHROME_TEXT.htTake)}</li>
                   </ol>
                 )}
               </DialogContent>
               <DialogActions>
-                <button className="btn btn--primary" onClick={() => setHowToOpen(false)}>Close</button>
+                <button className="btn btn--primary" onClick={() => setHowToOpen(false)}>{tc(CHROME_TEXT.close)}</button>
               </DialogActions>
             </Dialog>
           </div>

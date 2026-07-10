@@ -22,6 +22,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import VisibilityIcon from '@mui/icons-material/Visibility'
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import QueryStatsIcon from '@mui/icons-material/QueryStats'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { useDatabase } from '../hooks/useDatabase'
 import DetailedInsights from './DetailedInsights'
 import './ActiveTracking.css'
@@ -98,6 +99,9 @@ const ActiveTracking = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedOrg, setSelectedOrg] = useState('')
+  // Assessment (quiz) filter — 'all' shows every assessment for the selected
+  // organization; otherwise scopes all stats and charts to one assessment name.
+  const [selectedQuiz, setSelectedQuiz] = useState('all')
   const [employeeLimit, setEmployeeLimit] = useState('15') // number string or 'all'
   const [dateRange, setDateRange] = useState('all') // all | 30d | quarter | custom
   const [customFrom, setCustomFrom] = useState('')
@@ -111,6 +115,8 @@ const ActiveTracking = () => {
   // When true, replace the dashboard with the standalone Detailed Insights tool
   // (upload a spreadsheet → filter by its attributes → build dynamic dashboards).
   const [showInsights, setShowInsights] = useState(false)
+  // Info popup explaining what the Vector-wise Score chart shows and how it's computed
+  const [showVectorInfo, setShowVectorInfo] = useState(false)
 
   const dashboardRef = useRef(null)
 
@@ -222,9 +228,42 @@ const ActiveTracking = () => {
     }
   }, [organizations, selectedOrg])
 
-  const orgAttempts = useMemo(
+  // All attempts for the selected organization (before the assessment filter).
+  // Used both to build the assessment dropdown and as the base for filtering.
+  const orgAllAttempts = useMemo(
     () => attempts.filter(a => a.organization === selectedOrg),
     [attempts, selectedOrg]
+  )
+
+  // Distinct assessments present in the selected organization's data, so the
+  // filter only ever offers assessments that actually have attempts here.
+  const availableQuizzes = useMemo(() => {
+    const names = new Set(orgAllAttempts.map(a => a.quizName).filter(Boolean))
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [orgAllAttempts])
+
+  // Filename-safe tag for the selected assessment, added to export filenames so
+  // a filtered download is distinguishable from a full-organization one.
+  const quizFileTag = selectedQuiz === 'all'
+    ? ''
+    : `${selectedQuiz.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()}-`
+
+  // When the organization changes (or its assessment list changes), reset the
+  // assessment filter if the current selection is no longer available.
+  useEffect(() => {
+    if (selectedQuiz !== 'all' && !availableQuizzes.includes(selectedQuiz)) {
+      setSelectedQuiz('all')
+    }
+  }, [availableQuizzes, selectedQuiz])
+
+  // Apply the assessment filter. Everything downstream (period filtering,
+  // anonymization, every chart and the summary) derives from this, so the whole
+  // dashboard updates when a single assessment is selected.
+  const orgAttempts = useMemo(
+    () => (selectedQuiz === 'all'
+      ? orgAllAttempts
+      : orgAllAttempts.filter(a => a.quizName === selectedQuiz)),
+    [orgAllAttempts, selectedQuiz]
   )
 
   // Find current organization object to get its ID
@@ -248,9 +287,11 @@ const ActiveTracking = () => {
       ? (employees || []).filter(e => e.organization_id === currentOrg.id) 
       : [];
       
-    // Create a map of attempts grouped by employee email
+    // Create a map of attempts grouped by employee email, honoring the active
+    // assessment filter so counts and averages reflect the selected assessment.
     const emailAttempts = {};
     attempts.forEach(a => {
+      if (selectedQuiz !== 'all' && a.quizName !== selectedQuiz) return;
       // Find the user email for this attempt
       const u = userMap[a.user_id];
       if (u && u.email) {
@@ -293,7 +334,7 @@ const ActiveTracking = () => {
         baseEmployeeName
       };
     });
-  }, [selectedOrg, currentOrg, employees, attempts, userMap, users])
+  }, [selectedOrg, currentOrg, employees, attempts, userMap, users, selectedQuiz])
 
   const anonymized = viewMode === 'company'
 
@@ -442,13 +483,20 @@ const ActiveTracking = () => {
         const marks = Number(data?.marks) || 0
         if (total <= 0) return
         const pct = (marks / total) * 100
-        if (!map[name]) map[name] = { name, total: 0, count: 0 }
+        if (!map[name]) map[name] = { name, total: 0, marksSum: 0, maxSum: 0, count: 0 }
         map[name].total += pct
+        map[name].marksSum += marks
+        map[name].maxSum += total
         map[name].count += 1
       })
     })
     return Object.values(map)
-      .map(p => ({ name: p.name, avgScore: Math.round(p.total / p.count) }))
+      .map(p => ({
+        name: p.name,
+        avgScore: Math.round(p.total / p.count),
+        avgMarks: Math.round((p.marksSum / p.count) * 10) / 10,
+        avgMax: Math.round((p.maxSum / p.count) * 10) / 10,
+      }))
       .sort((a, b) => b.avgScore - a.avgScore)
   }, [viewAttempts])
 
@@ -540,7 +588,7 @@ const ActiveTracking = () => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `active-tracking-${selectedOrg}-${anonymized ? 'company' : 'internal'}-${fileStamp()}.csv`
+    a.download = `active-tracking-${selectedOrg}-${quizFileTag}${anonymized ? 'company' : 'internal'}-${fileStamp()}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -566,7 +614,7 @@ const ActiveTracking = () => {
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Active Tracking');
-    XLSX.writeFile(wb, `active-tracking-${selectedOrg}-${anonymized ? 'company' : 'internal'}-${fileStamp()}.xlsm`, { bookType: 'xlsm' });
+    XLSX.writeFile(wb, `active-tracking-${selectedOrg}-${quizFileTag}${anonymized ? 'company' : 'internal'}-${fileStamp()}.xlsm`, { bookType: 'xlsm' });
   }
 
   const exportPDF = async () => {
@@ -725,6 +773,7 @@ const ActiveTracking = () => {
         const boxY = 134
         const rows = [
           ['View', viewLabel],
+          ['Assessment', selectedQuiz === 'all' ? 'All assessments' : selectedQuiz],
           ['Period', periodLabel],
           ['Generated', generatedAt]
         ]
@@ -958,7 +1007,7 @@ const ActiveTracking = () => {
         drawFooter(i, total)
       }
 
-      pdf.save(`active-tracking-${selectedOrg}-${anonymized ? 'company' : 'internal'}-${fileStamp()}.pdf`)
+      pdf.save(`active-tracking-${selectedOrg}-${quizFileTag}${anonymized ? 'company' : 'internal'}-${fileStamp()}.pdf`)
     } catch (e) {
       console.error('PDF export failed:', e)
       alert('Failed to export PDF. Please try again.')
@@ -1120,6 +1169,23 @@ const ActiveTracking = () => {
             </div>
 
             <div className="at-controls__group">
+              <AssignmentIcon style={{ color: 'var(--color-primary)' }} />
+              <label htmlFor="at-quiz-select" className="at-controls__label">Assessment</label>
+              <select
+                id="at-quiz-select"
+                className="at-select"
+                value={selectedQuiz}
+                onChange={(e) => setSelectedQuiz(e.target.value)}
+                disabled={availableQuizzes.length === 0}
+              >
+                <option value="all">All assessments{availableQuizzes.length ? ` (${availableQuizzes.length})` : ''}</option>
+                {availableQuizzes.map(name => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="at-controls__group">
               <CalendarMonthIcon style={{ color: 'var(--color-primary)' }} />
               <label htmlFor="at-range-select" className="at-controls__label">Period</label>
               <select
@@ -1191,8 +1257,10 @@ const ActiveTracking = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%' }}>
               <div className="at-empty" style={{ padding: 'var(--space-6) var(--space-4)', marginBottom: 0 }}>
                 <InsightsIcon />
-                <h3>No attempts for {selectedOrg}</h3>
-                <p>{dateRange === 'all' ? 'This organization has no recorded quiz attempts yet.' : `No attempts in the selected period (${periodLabel}).`}</p>
+                <h3>No attempts for {selectedOrg}{selectedQuiz !== 'all' ? ` · ${selectedQuiz}` : ''}</h3>
+                <p>{selectedQuiz !== 'all'
+                  ? `No attempts recorded for "${selectedQuiz}"${dateRange === 'all' ? '' : ` in the selected period (${periodLabel})`}.`
+                  : (dateRange === 'all' ? 'This organization has no recorded quiz attempts yet.' : `No attempts in the selected period (${periodLabel}).`)}</p>
               </div>
               {renderEmployeeProgressTable()}
             </div>
@@ -1377,12 +1445,24 @@ const ActiveTracking = () => {
                 {/* Performance by area (horizontal, sorted, scrollable) */}
                 {packetAverages.length > 0 && (
                   <div className="at-chart-card">
-                    <h3 className="at-chart-card__title">Average Performance by Area</h3>
+                    <h3 className="at-chart-card__title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      Vector-wise Score average absolute score
+                      <button
+                        type="button"
+                        className="at-chart-info-btn"
+                        onClick={() => setShowVectorInfo(true)}
+                        aria-label="About this chart"
+                        title="What does this chart show?"
+                        style={{ display: 'inline-flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-primary)', padding: 0 }}
+                      >
+                        <InfoOutlinedIcon style={{ fontSize: 18 }} />
+                      </button>
+                    </h3>
                     <div className="at-chart-scroll">
                       <ResponsiveContainer width="100%" height={Math.max(240, packetAverages.length * 32)}>
-                        <BarChart layout="vertical" data={packetAverages} margin={{ top: 8, right: 32, left: 8, bottom: 8 }}>
+                        <BarChart layout="vertical" data={packetAverages} margin={{ top: 8, right: 48, left: 8, bottom: 8 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#E4E4E7" horizontal={false} />
-                          <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 12, fill: '#727279' }} />
+                          <XAxis type="number" tick={{ fontSize: 12, fill: '#727279' }} allowDecimals={false} />
                           <YAxis
                             type="category"
                             dataKey="name"
@@ -1390,9 +1470,9 @@ const ActiveTracking = () => {
                             tick={{ fontSize: 12, fill: '#727279' }}
                             tickFormatter={(v) => (v.length > 22 ? `${v.slice(0, 21)}…` : v)}
                           />
-                          <Tooltip formatter={(v) => `${v}%`} />
-                          <Bar dataKey="avgScore" name="Avg %" fill="#A68AF9" radius={[0, 6, 6, 0]} barSize={16}>
-                            <LabelList dataKey="avgScore" position="right" formatter={(v) => `${v}%`} style={{ fontSize: 10, fill: '#727279', fontWeight: 'bold' }} />
+                          <Tooltip formatter={(v, n, p) => `${v} / ${p?.payload?.avgMax ?? ''}`} />
+                          <Bar dataKey="avgMarks" name="Avg Score" fill="#A68AF9" radius={[0, 6, 6, 0]} barSize={16}>
+                            <LabelList dataKey="avgMarks" position="right" style={{ fontSize: 10, fill: '#727279', fontWeight: 'bold' }} />
                           </Bar>
                         </BarChart>
                       </ResponsiveContainer>
@@ -1441,6 +1521,58 @@ const ActiveTracking = () => {
       )}
 
       {/* Employee drill-down modal */}
+      {showVectorInfo && (
+        <div className="at-modal-overlay" onClick={() => setShowVectorInfo(false)}>
+          <div className="at-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="at-modal__header">
+              <div>
+                <h2 className="at-modal__title">Vector-wise Score</h2>
+                <p className="at-modal__subtitle">How this chart is calculated</p>
+              </div>
+              <button className="at-modal__close" onClick={() => setShowVectorInfo(false)} aria-label="Close">
+                <CloseIcon />
+              </button>
+            </div>
+
+            <div style={{ padding: 'var(--space-4)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', lineHeight: 1.5 }}>
+              <div>
+                <h3 className="at-modal__section">What it shows</h3>
+                <p>
+                  Each bar is one assessment area (vector). It shows the <strong>average absolute
+                  score</strong> employees obtained in that area — in actual marks, not a percentage.
+                  Areas are sorted from strongest to weakest, so the top bars are where the
+                  {' '}{viewMode === 'company' ? 'organization' : 'team'} performs best.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="at-modal__section">Formula</h3>
+                <p style={{ margin: 0 }}>
+                  For each area, across every attempt in the selected filters:
+                </p>
+                <pre style={{ background: 'var(--color-surface-2, #f4f4f5)', padding: 'var(--space-3)', borderRadius: 8, overflowX: 'auto', fontSize: 'var(--text-sm)', margin: 'var(--space-2) 0 0' }}>
+{`Avg Score = Σ (marks in the area)  ÷  number of attempts`}
+                </pre>
+                <p style={{ marginTop: 'var(--space-2)' }}>
+                  The label next to each bar is that average score, and the tooltip shows it as
+                  {' '}<code>score / max</code> — the average marks scored out of the average marks
+                  available in that area.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="at-modal__section">Scope</h3>
+                <p style={{ margin: 0 }}>
+                  Respects the current <strong>Organization</strong>, <strong>Assessment</strong>,
+                  {' '}<strong>Period</strong> and <strong>View</strong> (Internal Team / Company)
+                  filters. Only areas with recorded marks appear.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {employeeDetail && (
         <div className="at-modal-overlay" onClick={() => setSelectedEmployee(null)}>
           <div className="at-modal" onClick={(e) => e.stopPropagation()}>

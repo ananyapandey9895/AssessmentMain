@@ -2,6 +2,35 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { quizPacketApi } from '../../services/api';
+import { useLanguage } from '../../contexts/LanguageContext';
+import { useTranslatedContent } from '../../hooks/useTranslatedContent';
+
+// Static UI copy for the dashboard. Every string is fed through the translation
+// hook so the whole page renders in the user's selected language.
+const UI_TEXT = {
+  welcome: 'Welcome!',
+  language: 'Language',
+  mapped: 'Mapped Assessments',
+  taken: 'Assessments Taken',
+  totalAttempts: 'Total Attempts',
+  assignedQuizzes: 'Assigned Quizzes',
+  noQuizzes: 'No quizzes assigned yet',
+  noQuizzesSub: 'New quizzes will appear here when assigned',
+  pending: 'Pending Completion',
+  startQuiz: 'Start Quiz',
+  resumeAssessment: 'Resume Assessment',
+  recentAttempts: 'Recent Attempts',
+  noAttempts: 'No attempts yet',
+  noAttemptsSub: 'Your quiz results will show up here',
+  completed: 'Completed',
+  viewReport: 'View Report',
+  resume: 'Resume',
+  quiz: 'Quiz',
+  viewAll: 'View All',
+  attempts: 'Attempts',
+  loginPrompt: 'Please log in to view your dashboard.',
+  translating: 'Translating…',
+};
 import {
   Quiz as QuizIcon,
   CheckCircle as CheckCircleIcon,
@@ -22,6 +51,7 @@ const UserDashboard = ({ setTab }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const { language, setLanguage, languages } = useLanguage();
 
   const {
     userQuizAttempts,
@@ -166,6 +196,32 @@ const UserDashboard = ({ setTab }) => {
     });
   };
 
+  // Collect every dynamic string the dashboard renders (quiz names,
+  // descriptions, profile names) so they get translated alongside the static
+  // UI copy. translateBatch de-dupes and caches, so this stays cheap.
+  const dynamicTexts = useMemo(() => {
+    const arr = [];
+    assignedQuizzes.forEach((a) => {
+      if (a.quiz?.name) arr.push(a.quiz.name);
+      if (a.quiz?.description) arr.push(a.quiz.description);
+      if (a.profile?.name) arr.push(a.profile.name);
+    });
+    filteredUserQuizAttempts.forEach((a) => {
+      if (a.quiz?.name) arr.push(a.quiz.name);
+      if (a.profile?.name) arr.push(a.profile.name);
+    });
+    return arr;
+  }, [assignedQuizzes, filteredUserQuizAttempts]);
+
+  const allTexts = useMemo(
+    () => [...Object.values(UI_TEXT), ...dynamicTexts],
+    [dynamicTexts]
+  );
+
+  const { tx, translating } = useTranslatedContent(allTexts);
+  // Shorthand for translating a static UI key.
+  const t = (key) => tx(UI_TEXT[key]);
+
   if (loading || dbLoading) {
     return (
       <div className="dashboard__loading">
@@ -188,7 +244,7 @@ const UserDashboard = ({ setTab }) => {
     return (
       <div className="dashboard">
         <div className="alert alert--warning" role="alert">
-          Please log in to view your dashboard.
+          {t('loginPrompt')}
         </div>
       </div>
     );
@@ -202,12 +258,33 @@ const UserDashboard = ({ setTab }) => {
             <PersonIcon />
           </div>
           <div>
-            <h1 className="dashboard__title">Welcome!</h1>
+            <h1 className="dashboard__title">{t('welcome')}</h1>
             <div className="dashboard__subtitle">
               <EmailIcon />
               <span>{user.email}</span>
             </div>
           </div>
+        </div>
+
+        <div className="dashboard__lang">
+          <label className="dashboard__lang-label" htmlFor="dashboard-language">
+            {t('language')}
+          </label>
+          <select
+            id="dashboard-language"
+            className="dashboard__lang-select"
+            value={language}
+            onChange={(e) => setLanguage(e.target.value)}
+          >
+            {languages.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          {translating && (
+            <span className="dashboard__lang-status">{UI_TEXT.translating}</span>
+          )}
         </div>
       </header>
 
@@ -216,7 +293,7 @@ const UserDashboard = ({ setTab }) => {
           <div className="stat-card__content">
             <div>
               <div className="stat-card__value">{stats.mappedCount}</div>
-              <div className="stat-card__label">Mapped Assessments</div>
+              <div className="stat-card__label">{t('mapped')}</div>
             </div>
             <div className="stat-card__icon">
               <AssignmentIcon />
@@ -228,7 +305,7 @@ const UserDashboard = ({ setTab }) => {
           <div className="stat-card__content">
             <div>
               <div className="stat-card__value">{stats.takenCount}</div>
-              <div className="stat-card__label">Assessments Taken</div>
+              <div className="stat-card__label">{t('taken')}</div>
             </div>
             <div className="stat-card__icon">
               <CheckCircleIcon />
@@ -240,7 +317,7 @@ const UserDashboard = ({ setTab }) => {
           <div className="stat-card__content">
             <div>
               <div className="stat-card__value">{stats.totalAttemptsCount}</div>
-              <div className="stat-card__label">Total Attempts</div>
+              <div className="stat-card__label">{t('totalAttempts')}</div>
             </div>
             <div className="stat-card__icon">
               <TrendingUpIcon />
@@ -256,14 +333,14 @@ const UserDashboard = ({ setTab }) => {
             <div className="section-card__header-icon">
               <AssignmentIcon />
             </div>
-            Assigned Quizzes
+            {t('assignedQuizzes')}
           </h2>
 
           {assignedQuizzes.length === 0 ? (
             <div className="empty-state">
               <AssignmentIcon className="empty-state__icon" />
-              <div className="empty-state__title">No quizzes assigned yet</div>
-              <div className="empty-state__subtitle">New quizzes will appear here when assigned</div>
+              <div className="empty-state__title">{t('noQuizzes')}</div>
+              <div className="empty-state__subtitle">{t('noQuizzesSub')}</div>
             </div>
           ) : (
             <div>
@@ -276,14 +353,14 @@ const UserDashboard = ({ setTab }) => {
                     <div className="list-item__content">
                       <div className="list-item__header">
                         <QuizIcon className="list-item__icon" />
-                        <h3 className="list-item__title">{assignment.quiz?.name}</h3>
+                        <h3 className="list-item__title">{tx(assignment.quiz?.name)}</h3>
                       </div>
-                      <p className="list-item__desc">{assignment.quiz?.description}</p>
+                      <p className="list-item__desc">{tx(assignment.quiz?.description)}</p>
                       <div className="list-item__tags">
-                        <span className="badge badge--primary">{assignment.profile?.name}</span>
+                        <span className="badge badge--primary">{tx(assignment.profile?.name)}</span>
                         {incompleteAttempt && (
                           <span className="badge badge--warning" style={{ display: 'flex', alignItems: 'center' }}>
-                            <HourglassEmptyIcon sx={{ fontSize: 14, mr: 0.5 }} /> Pending Completion
+                            <HourglassEmptyIcon sx={{ fontSize: 14, mr: 0.5 }} /> {t('pending')}
                           </span>
                         )}
                         {questionCounts[assignment.quiz_id] > 0 && (
@@ -298,7 +375,7 @@ const UserDashboard = ({ setTab }) => {
                         className="btn btn--primary"
                         onClick={() => window.open(`/attempt/${assignment.quiz_id}`, '_blank')}
                       >
-                        {incompleteAttempt ? 'Resume Assessment' : 'Start Quiz'} &rarr;
+                        {incompleteAttempt ? t('resumeAssessment') : t('startQuiz')} &rarr;
                       </button>
                     </div>
                   </article>
@@ -314,14 +391,14 @@ const UserDashboard = ({ setTab }) => {
             <div className="section-card__header-icon" style={{ backgroundColor: '#895BF5' }}>
               <TrendingUpIcon />
             </div>
-            Recent Attempts
+            {t('recentAttempts')}
           </h2>
 
           {filteredUserQuizAttempts.length === 0 ? (
             <div className="empty-state">
               <TrendingUpIcon className="empty-state__icon" />
-              <div className="empty-state__title">No attempts yet</div>
-              <div className="empty-state__subtitle">Your quiz results will show up here</div>
+              <div className="empty-state__title">{t('noAttempts')}</div>
+              <div className="empty-state__subtitle">{t('noAttemptsSub')}</div>
             </div>
           ) : (
             <div>
@@ -338,7 +415,7 @@ const UserDashboard = ({ setTab }) => {
                         )}
                         <div>
                           <h3 className="list-item__title" style={{ marginBottom: '4px' }}>
-                            {attempt.quiz?.name || 'Quiz'}
+                            {attempt.quiz?.name ? tx(attempt.quiz.name) : t('quiz')}
                           </h3>
                           <div className="text-sm text-muted" style={{ display: 'flex', alignItems: 'center' }}>
                             <EventIcon sx={{ fontSize: 16, mr: 0.5 }} /> {formatDate(attempt.started_at)}
@@ -346,14 +423,14 @@ const UserDashboard = ({ setTab }) => {
                         </div>
                       </div>
                       <div className="list-item__tags" style={{ marginTop: '12px' }}>
-                        <span className="badge badge--primary">{attempt.profile?.name}</span>
+                        <span className="badge badge--primary">{tx(attempt.profile?.name)}</span>
                         {isCompleted ? (
                           <span className="badge badge--success" style={{ display: 'flex', alignItems: 'center' }}>
-                            <CheckCircleIcon sx={{ fontSize: 14, mr: 0.5 }} /> Completed
+                            <CheckCircleIcon sx={{ fontSize: 14, mr: 0.5 }} /> {t('completed')}
                           </span>
                         ) : (
                           <span className="badge badge--warning" style={{ display: 'flex', alignItems: 'center' }}>
-                            <HourglassEmptyIcon sx={{ fontSize: 14, mr: 0.5 }} /> Pending Completion
+                            <HourglassEmptyIcon sx={{ fontSize: 14, mr: 0.5 }} /> {t('pending')}
                           </span>
                         )}
                       </div>
@@ -365,14 +442,14 @@ const UserDashboard = ({ setTab }) => {
                           onClick={() => navigate(`/report/${attempt.quiz_id}/${attempt.id}`)}
                         >
                           <VisibilityIcon className="btn-icon" />
-                          View Report
+                          {t('viewReport')}
                         </button>
                       ) : (
                         <button
                           className="btn btn--primary"
                           onClick={() => window.open(`/attempt/${attempt.quiz_id}`, '_blank')}
                         >
-                          Resume &rarr;
+                          {t('resume')} &rarr;
                         </button>
                       )}
                     </div>
@@ -383,7 +460,7 @@ const UserDashboard = ({ setTab }) => {
               {filteredUserQuizAttempts.length > 5 && (
                 <div style={{ textAlign: 'center', marginTop: 'var(--space-6)' }}>
                   <button className="btn btn--outline" onClick={() => setTab && setTab(1)}>
-                    View All {filteredUserQuizAttempts.length} Attempts &rarr;
+                    {t('viewAll')} {filteredUserQuizAttempts.length} {t('attempts')} &rarr;
                   </button>
                 </div>
               )}
